@@ -42,3 +42,12 @@ samples/
 oss/
 release-please-config.json
 renovate.json
+.github/
+*.log
+*.env
+node_modules/
+build/
+dist/
+.idea/
+.vscode/
+.DS_Store
