@@ -1,33 +1,46 @@
-version: "3.9"
-
 services:
   ui:
-    image: public.ecr.aws/aws-containers/retail-store-sample-ui:1.0.0
+    image: yugandhar7/ui:latest
+    container_name: ui
     ports:
+      # Host 8888 → Container 8080 (UI listens on 8080 internally)
       - "8888:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
     depends_on:
       - catalog
       - cart
       - checkout
-      - orders
 
   catalog:
-    image: public.ecr.aws/aws-containers/retail-store-sample-catalog:1.0.0
-    expose:
-      - "8080"
+    image: yugandhar7/catalog:latest
+    container_name: catalog
+    ports:
+      - "8082:8080"
+    environment:
+      - GIN_MODE=release
 
   cart:
-    image: public.ecr.aws/aws-containers/retail-store-sample-cart:1.0.0
-    expose:
-      - "8080"
+    image: yugandhar7/cart:latest
+    container_name: cart
+    ports:
+      - "8081:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
 
   checkout:
-    image: public.ecr.aws/aws-containers/retail-store-sample-checkout:1.0.0
-    expose:
-      - "8080"
+    image: yugandhar7/checkout:latest
+    container_name: checkout
+    ports:
+      - "8083:8080"
+    depends_on:
+      - cart
+      - orders
 
   orders:
-    image: public.ecr.aws/aws-containers/retail-store-sample-orders:1.0.0
-    expose:
-      - "8080"
-
+    image: yugandhar7/orders:latest
+    container_name: orders
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:h2:mem:orders
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver

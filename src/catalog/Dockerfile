@@ -1,57 +1,42 @@
-# Build Stage
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS build-env
+# =========================
+# 1️⃣ Build Stage
+# =========================
+FROM golang:1.23-alpine AS build
 
-# We tell DNF not to install Recommends and Suggests packages, which are
-# weak dependencies in DNF terminology, thus keeping our installed set of
-# packages as minimal as possible.
-RUN dnf --setopt=install_weak_deps=False install -q -y \
-    git \
-    golang \
-    && \
-    dnf clean all
+# Install build dependencies for CGO
+RUN apk add --no-cache gcc musl-dev sqlite-dev
 
-RUN mkdir -p "${GOPATH}/src" "${GOPATH}/bin" /appsrc
-
-WORKDIR /appsrc
-
-ENV GOPROXY=https://goproxy.io,direct
+WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN go build -o main main.go
+# Build with CGO enabled (REQUIRED for sqlite)
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+    go build -o catalog main.go
 
-# Final stage
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 
-ENV APPUSER=appuser
-ENV APPUID=1000
-ENV APPGID=1000
+# =========================
+# 2️⃣ Runtime Stage
+# =========================
+FROM alpine:3.20
 
-# We tell DNF not to install Recommends and Suggests packages, which are
-# weak dependencies in DNF terminology, thus keeping our installed set of
-# packages as minimal as possible.
-RUN dnf --setopt=install_weak_deps=False install -q -y \
-    shadow-utils \
-    && \
-    dnf clean all
+# Install sqlite runtime dependency
+RUN apk add --no-cache sqlite-libs ca-certificates
 
-RUN useradd \
-    --home "/app" \
-    --create-home \
-    --user-group \
-    --uid "$APPUID" \
-    "$APPUSER"
+# Create non-root user
+RUN adduser -D appuser
 
 WORKDIR /app
+
+COPY --from=build /app/catalog /app/catalog
+
 USER appuser
-
-COPY --chown=appuser:appuser --from=build-env /appsrc/main /app/
-
-COPY ./ATTRIBUTION.md ./LICENSES.md
 
 ENV GIN_MODE=release
 
-ENTRYPOINT ["/app/main"]
+EXPOSE 8080
+
+ENTRYPOINT ["/app/catalog"]

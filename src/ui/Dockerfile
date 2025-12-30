@@ -1,68 +1,52 @@
-# Build Stage
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS build-env
+# =========================
+# 1️⃣ Build Stage
+# =========================
+FROM eclipse-temurin:21-jdk AS build
 
-# We tell DNF not to install Recommends and Suggests packages, keeping our
-# installed set of packages as minimal as possible.
-RUN dnf --setopt=install_weak_deps=False install -q -y \
-    maven \
-    java-21-amazon-corretto-headless \
-    which \
-    tar \
-    gzip \
-    && \
-    dnf clean all
+# Create working directory
+WORKDIR /build
 
-VOLUME /tmp
-WORKDIR /
-
+# Copy Maven wrapper and dependency files first (for caching)
 COPY .mvn .mvn
 COPY mvnw .
 COPY pom.xml .
 
-RUN ./mvnw dependency:go-offline -B -q
+# Download dependencies (faster rebuilds)
+RUN ./mvnw dependency:go-offline -B
 
-COPY ./src ./src
+# Copy source code
+COPY src src
 
-RUN ./mvnw -DskipTests package -q && \
-    mv /target/ui-0.0.1-SNAPSHOT.jar /app.jar
+# Build the application (skip tests for image build)
+RUN ./mvnw package -DskipTests \
+    && cp target/*.jar app.jar
 
-# Package Stage
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 
-# We tell DNF not to install Recommends and Suggests packages, which are
-# weak dependencies in DNF terminology, thus keeping our installed set of
-# packages as minimal as possible.
-RUN dnf --setopt=install_weak_deps=False install -q -y \
-    java-21-amazon-corretto-headless \
-    shadow-utils \
-    && \
-    dnf clean all
+# =========================
+# 2️⃣ Runtime Stage
+# =========================
+FROM eclipse-temurin:21-jre
 
-# use curl-full to use "telnet://" scheme
-# https://docs.aws.amazon.com/linux/al2023/ug/curl-minimal.html
-RUN dnf -q -y swap libcurl-minimal libcurl-full \
-    && dnf -q -y swap curl-minimal curl-full
+# Create non-root user (UID auto-assigned)
+RUN useradd -m appuser
 
-ENV APPUSER=appuser
-ENV APPUID=1000
-ENV APPGID=1000
-
-RUN useradd \
-    --home "/app" \
-    --create-home \
-    --user-group \
-    --uid "$APPUID" \
-    "$APPUSER"
-
-ENV JAVA_TOOL_OPTIONS=
-ENV SPRING_PROFILES_ACTIVE=prod
-
+# Set working directory
 WORKDIR /app
+
+# Copy the built JAR from build stage
+COPY --from=build /build/app.jar app.jar
+
+# Switch to non-root user
 USER appuser
 
-COPY ./ATTRIBUTION.md ./LICENSES.md
-COPY --chown=appuser:appuser --from=build-env /app.jar .
+# Environment variables
+ENV SPRING_PROFILES_ACTIVE=prod
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
+# Application port
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
+# Start the application (proper signal handling)
+ENTRYPOINT ["java","-jar","/app/app.jar"]
+
+
