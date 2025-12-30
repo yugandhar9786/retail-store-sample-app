@@ -31,3 +31,14 @@ devenv.local.nix
 .direnv
 
 .pre-commit-config.yaml
+
+#############################
+terraform/
+devenv.*
+nx.json
+scripts/
+docs/
+samples/
+oss/
+release-please-config.json
+renovate.json
